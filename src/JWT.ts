@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import * as jose from "jose";
+import moment from 'moment';
 
 const DEFAULT_SIGNING_ALG = "ES256";
 const SD_DIGESTS_KEY = "_sd";
@@ -81,10 +82,12 @@ const _create_sd_claims = (user_claims: any, ii_disclosures: any[], _debug_ii_di
 };
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L137
-const _assemble_sd_jwt_payload = (user_claims: any, ii_disclosures: any[], _debug_ii_disclosures_contents: any[]) => {
+const _assemble_sd_jwt_payload = (user_claims: any, ii_disclosures: any[], _debug_ii_disclosures_contents: any[], holderPublicKey?: any) => {
   const sd_jwt_payload = _create_sd_claims(user_claims, ii_disclosures, _debug_ii_disclosures_contents);
   sd_jwt_payload[DIGEST_ALG_KEY] = 'sha-256';
-  // TODO: holder key / cnf
+  if (holderPublicKey){
+    sd_jwt_payload['cnf'] = { jwk: holderPublicKey };
+  }
   return sd_jwt_payload;
 };
 
@@ -111,13 +114,13 @@ const _create_combined = (serialized_sd_jwt: string, ii_disclosures: any[]) => {
 }
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L105
-export const sign = async (header: any, user_claims: any, { issuerPrivateKey }: any) => {
+export const sign = async (header: any, user_claims: any, { issuerPrivateKey, holderPublicKey }: any) => {
   _check_for_sd_claim(user_claims);
 
   const ii_disclosures:any[] = [];
   const _debug_ii_disclosures_contents:any[] = [];
   
-  const sd_jwt_payload = _assemble_sd_jwt_payload(user_claims, ii_disclosures, _debug_ii_disclosures_contents);
+  const sd_jwt_payload = _assemble_sd_jwt_payload(user_claims, ii_disclosures, _debug_ii_disclosures_contents, holderPublicKey);
   const serialized_sd_jwt = await _create_signed_jwt(header, sd_jwt_payload, issuerPrivateKey);
   const combined = _create_combined(serialized_sd_jwt, ii_disclosures)
   return combined;
@@ -219,6 +222,22 @@ const _select_disclosures = (sd_jwt_claims: any, claims_to_disclose: any[], _has
   }
 }
 
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L329
+const _create_holder_binding_jwt = async (nonce: any, aud: any, privateKey: any) => {
+  const header = { alg: privateKey.alg };
+  const payload = {
+    "nonce": nonce,
+    "aud": aud,
+    "iat": moment().unix()
+  }
+  const jws = await new jose.CompactSign(
+    new TextEncoder().encode(JSON.stringify(payload)),
+  )
+    .setProtectedHeader(header)
+    .sign(await jose.importJWK(privateKey))
+  return jws;
+}
+
 // a mixture of the class constructor and create_presentation
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L265
 export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[], options?: any) => {
@@ -226,13 +245,17 @@ export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[],
   const {_hash_to_decoded_disclosure, _hash_to_disclosure} = _create_hash_mappings(_ii_disclosures)
   const sd_jwt_payload = _extract_payload_unverified(serialized_sd_jwt)
   const hs_disclosures:any = []
-
   _select_disclosures(sd_jwt_payload, claims_to_disclose, _hash_to_decoded_disclosure, _hash_to_disclosure, hs_disclosures)
-
-  // # Optional: Create a holder binding JWT
-  // const serialized_holder_binding_jwt = ...
-
-  const combined_presentation = _combine(serialized_sd_jwt, ...hs_disclosures )
+  let serialized_holder_binding_jwt: any = undefined;
+  if (sd_jwt_payload.cnf && !options.aud){
+    throw new Error('Expected holder binding, but no aud or nonce is present.')
+  }
+  const parts = [serialized_sd_jwt, ...hs_disclosures]
+  if (sd_jwt_payload.cnf && options.aud && options.nonce){
+    serialized_holder_binding_jwt = await _create_holder_binding_jwt(options.nonce, options.aud, options.holderPrivateKey)
+    parts.push(serialized_holder_binding_jwt)
+  }
+  const combined_presentation = _combine(...parts)
   return combined_presentation;
 }
 
@@ -245,7 +268,7 @@ const _verify_sd_jwt = async (serialized_sd_jwt: string, cb_get_issuer_key: any)
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L389
 const _parse_combined_presentation = (combined: string) => {
-  // TODO: holder binding.
+
   const [_unverified_input_sd_jwt, ..._hs_disclosures] = _split(combined)
   let _unverified_input_holder_binding_jwt = undefined
   if (_hs_disclosures[_hs_disclosures.length-1].includes('.')){
@@ -257,8 +280,11 @@ const _parse_combined_presentation = (combined: string) => {
 }
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L417
-const _verify_holder_binding_jwt = (jwt: string, expected_aud: any, expected_nonce: any) => {
-  return true;
+const _verify_holder_binding_jwt = async (jwt: string, expected_aud: any, expected_nonce: any, holderPublicKey:any) => {
+  const { payload } = await jose.jwtVerify(jwt, await jose.importJWK(holderPublicKey), {
+    audience: expected_aud,
+  })
+  return payload.nonce === expected_nonce;
 }
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L460
@@ -269,11 +295,6 @@ const _unpack_disclosed_claims = (sd_jwt_claims: any, _duplicate_hash_check: any
     // # First, try to figure out if there are any claims to be
     // # disclosed in this dict. If so, replace them by their
     // # disclosed values.
-    // const pre_output = {
-    //     k: self._unpack_disclosed_claims(v)
-    //     for k, v in sd_jwt_claims.items()
-    //     if k != SD_DIGESTS_KEY
-    // }
     const pre_output:any = {}
     for (const [key, value] of Object.entries(sd_jwt_claims)) {
       if (key !== SD_DIGESTS_KEY){
@@ -316,13 +337,16 @@ export const verify = async (sd_jwt_combined: string, options: any) => {
     return options.issuerPublicKey
   })
 
-  if (_unverified_input_holder_binding_jwt){
+  if (payload.cnf){
+    if (!_unverified_input_holder_binding_jwt){
+      throw new Error('Expected holder binding, but found no token.')
+    }
     if (options.expected_aud || options.expected_nonce){
       if (! (options.expected_aud && options.expected_nonce)){
         throw new Error('Either both expected_aud and expected_nonce must be set or both must be undefined')
       }
-      _verify_holder_binding_jwt(_unverified_input_holder_binding_jwt, options.expected_aud, options.expected_nonce )
     }
+    await _verify_holder_binding_jwt(_unverified_input_holder_binding_jwt, options.expected_aud, options.expected_nonce,  payload.cnf.jwk)
   }
   const presentationOutput = _extract_sd_claims(payload, _hash_to_decoded_disclosure)
   return {protectedHeader, payload: presentationOutput}

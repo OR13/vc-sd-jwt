@@ -49,13 +49,21 @@ it("can sign and verify without holder binding", async () => {
   expect(payload.credentialSubject.batchNumber).toBe('1626382736')
 });
 
-it.only("can sign and verify with holder binding", async () => {
-  const combined = await JWT.sign({ alg: publicKey.alg }, fresh(user_claims), { issuerPrivateKey: privateKey });
+it("can sign and verify with holder binding", async () => {
+  const combined = await JWT.sign({ alg: publicKey.alg }, fresh(user_claims), { issuerPrivateKey: privateKey, holderPublicKey: publicKey });
   expect(combined).toBeDefined()
   const holder_disclosed_claims: any = { "credentialSubject": { "batchNumber": true } }
-  const derived = await JWT.derive(combined, holder_disclosed_claims, { holderPrivateKey: privateKey});
+  const derived = await JWT.derive(combined, holder_disclosed_claims, { 
+    aud: 'urn:verifier:123',
+    nonce: 'urn:uuid:3dd995e1-d07f-469e-8f35-176935503da1',
+    holderPrivateKey: privateKey
+  });
   expect(derived).toBeDefined()
-  const {protectedHeader, payload} = await JWT.verify(derived, {issuerPublicKey: publicKey})
+  const {protectedHeader, payload} = await JWT.verify(derived, {
+    expected_aud: 'urn:verifier:123',
+    expected_nonce: 'urn:uuid:3dd995e1-d07f-469e-8f35-176935503da1',
+    issuerPublicKey: publicKey
+  })
   expect(protectedHeader.alg).toBe(publicKey.alg)
   expect(payload._sd_alg).toBe('sha-256')
   expect(payload.credentialSubject.batchNumber).toBe('1626382736')
