@@ -111,14 +111,14 @@ const _create_combined = (serialized_sd_jwt: string, ii_disclosures: any[]) => {
 }
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L105
-export const sign = async (header: any, user_claims: any, privateKey: any) => {
+export const sign = async (header: any, user_claims: any, { issuerPrivateKey }: any) => {
   _check_for_sd_claim(user_claims);
 
   const ii_disclosures:any[] = [];
   const _debug_ii_disclosures_contents:any[] = [];
   
   const sd_jwt_payload = _assemble_sd_jwt_payload(user_claims, ii_disclosures, _debug_ii_disclosures_contents);
-  const serialized_sd_jwt = await _create_signed_jwt(header, sd_jwt_payload, privateKey);
+  const serialized_sd_jwt = await _create_signed_jwt(header, sd_jwt_payload, issuerPrivateKey);
   const combined = _create_combined(serialized_sd_jwt, ii_disclosures)
   return combined;
 };
@@ -221,7 +221,7 @@ const _select_disclosures = (sd_jwt_claims: any, claims_to_disclose: any[], _has
 
 // a mixture of the class constructor and create_presentation
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L265
-export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[], options: any) => {
+export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[], options?: any) => {
   const [serialized_sd_jwt, _ii_disclosures] = _parse_combined_sd_jwt_iid(sd_jwt_combined)
   const {_hash_to_decoded_disclosure, _hash_to_disclosure} = _create_hash_mappings(_ii_disclosures)
   const sd_jwt_payload = _extract_payload_unverified(serialized_sd_jwt)
@@ -313,7 +313,7 @@ export const verify = async (sd_jwt_combined: string, options: any) => {
   const {_unverified_input_sd_jwt, _hs_disclosures, _unverified_input_holder_binding_jwt} = _parse_combined_presentation(sd_jwt_combined)
   const {_hash_to_decoded_disclosure, _hash_to_disclosure} = _create_hash_mappings(_hs_disclosures)
   const {protectedHeader, payload} = await  _verify_sd_jwt(_unverified_input_sd_jwt, () => {
-    return options.publicKey
+    return options.issuerPublicKey
   })
 
   if (_unverified_input_holder_binding_jwt){
