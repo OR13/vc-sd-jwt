@@ -72,13 +72,13 @@ const presentation = await JWT.derive(credential, {
   aud: 'urn:verifier:123',
   nonce: 'urn:uuid:3dd995e1-d07f-469e-8f35-176935503da1',
   disclose: { "credentialSubject": { "batchNumber": true } },
-  holderPrivateKey: privateKey
+  holderPrivateKey: privateKey // holder binding key
 });
 
 const {protectedHeader, payload} = await JWT.verify(presentation, {
   expected_aud: 'urn:verifier:123',
   expected_nonce: 'urn:uuid:3dd995e1-d07f-469e-8f35-176935503da1',
-  issuerPublicKey: publicKey
+  issuerPublicKey: publicKey // issuer verification key
 })
 // payload:
 // {
