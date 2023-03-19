@@ -9,7 +9,7 @@
 
 <!-- [![NPM](https://nodei.co/npm/@or13/vc-sd-jwt.png?mini=true)](https://npmjs.org/package/@or13/vc-sd-jwt) -->
 
-Experimental implementation of sd-jwt for use with W3C Verifiable Credentials.
+🚧 Experimental implementation of sd-jwt for use with W3C Verifiable Credentials. 🔥
 
 Based on:
 
