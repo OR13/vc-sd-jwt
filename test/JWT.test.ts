@@ -33,15 +33,16 @@ it("should error when user claims contains digest keys", async () => {
     "ypFwyXOiHzulGDvpY46Jr1nDRexz35FYfBqJWe7xKqc",
   ];
   return expect((async () => {
-    await JWT.sign(header, payload, {privateKey});
+    await JWT.sign(payload, {privateKey});
   })()).rejects.toEqual(new Error(JWT.SDJWTHasSDClaimException));
 });
 
 it("can sign and verify without holder binding", async () => {
-  const combined = await JWT.sign({ alg: publicKey.alg }, fresh(user_claims), { issuerPrivateKey: privateKey });
+  const combined = await JWT.sign(fresh(user_claims), { issuerPrivateKey: privateKey });
   expect(combined).toBeDefined()
-  const holder_disclosed_claims: any = { "credentialSubject": { "batchNumber": true } }
-  const derived = await JWT.derive(combined, holder_disclosed_claims);
+  const derived = await JWT.derive(combined, {
+    disclose: { "credentialSubject": { "batchNumber": true } },
+  });
   expect(derived).toBeDefined()
   const {protectedHeader, payload} = await JWT.verify(derived, {issuerPublicKey: publicKey})
   expect(protectedHeader.alg).toBe(publicKey.alg)
@@ -50,12 +51,12 @@ it("can sign and verify without holder binding", async () => {
 });
 
 it("can sign and verify with holder binding", async () => {
-  const combined = await JWT.sign({ alg: publicKey.alg }, fresh(user_claims), { issuerPrivateKey: privateKey, holderPublicKey: publicKey });
+  const combined = await JWT.sign(fresh(user_claims), { issuerPrivateKey: privateKey, holderPublicKey: publicKey });
   expect(combined).toBeDefined()
-  const holder_disclosed_claims: any = { "credentialSubject": { "batchNumber": true } }
-  const derived = await JWT.derive(combined, holder_disclosed_claims, { 
+  const derived = await JWT.derive(combined, { 
     aud: 'urn:verifier:123',
     nonce: 'urn:uuid:3dd995e1-d07f-469e-8f35-176935503da1',
+    disclose: { "credentialSubject": { "batchNumber": true } },
     holderPrivateKey: privateKey
   });
   expect(derived).toBeDefined()

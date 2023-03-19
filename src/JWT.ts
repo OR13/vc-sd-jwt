@@ -114,14 +114,14 @@ const _create_combined = (serialized_sd_jwt: string, ii_disclosures: any[]) => {
 }
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L105
-export const sign = async (header: any, user_claims: any, { issuerPrivateKey, holderPublicKey }: any) => {
+export const sign = async (user_claims: any, { issuerPrivateKey, holderPublicKey }: any) => {
   _check_for_sd_claim(user_claims);
 
   const ii_disclosures:any[] = [];
   const _debug_ii_disclosures_contents:any[] = [];
   
   const sd_jwt_payload = _assemble_sd_jwt_payload(user_claims, ii_disclosures, _debug_ii_disclosures_contents, holderPublicKey);
-  const serialized_sd_jwt = await _create_signed_jwt(header, sd_jwt_payload, issuerPrivateKey);
+  const serialized_sd_jwt = await _create_signed_jwt({ alg: issuerPrivateKey.alg }, sd_jwt_payload, issuerPrivateKey);
   const combined = _create_combined(serialized_sd_jwt, ii_disclosures)
   return combined;
 };
@@ -240,7 +240,8 @@ const _create_holder_binding_jwt = async (nonce: any, aud: any, privateKey: any)
 
 // a mixture of the class constructor and create_presentation
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L265
-export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[], options?: any) => {
+export const derive = async (sd_jwt_combined: string, options?: any) => {
+  const claims_to_disclose = options.disclose;
   const [serialized_sd_jwt, _ii_disclosures] = _parse_combined_sd_jwt_iid(sd_jwt_combined)
   const {_hash_to_decoded_disclosure, _hash_to_disclosure} = _create_hash_mappings(_ii_disclosures)
   const sd_jwt_payload = _extract_payload_unverified(serialized_sd_jwt)
