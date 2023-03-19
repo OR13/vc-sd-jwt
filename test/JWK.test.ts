@@ -1,7 +1,8 @@
 
-import {JWK} from '../src'
+import { JWK } from '../src'
 
-it("can generate JWK from seed", async () => {
-  const privateKey = JWK.generate('ES256');
-  expect(privateKey).toBe(privateKey)
-});
+it("can generate JWK for alg", async () => {
+  const {publicKey, privateKey} = await JWK.generate('ES256');
+  expect(publicKey.alg).toBe('ES256');
+  expect(privateKey.alg).toBe('ES256')
+})
