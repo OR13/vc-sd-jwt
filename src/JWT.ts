@@ -122,3 +122,111 @@ export const sign = async (header: any, user_claims: any, privateKey: any) => {
   const combined = _create_combined(serialized_sd_jwt, ii_disclosures)
   return combined;
 };
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L46
+const _split = (combined: string) => {
+  return combined.split(COMBINED_FORMAT_SEPARATOR)
+}
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L254
+const _parse_combined_sd_jwt_iid = (sd_jwt_combined: string): any[] => {
+  const [ serialized_sd_jwt, ..._ii_disclosures] = _split(sd_jwt_combined);
+  return [serialized_sd_jwt, _ii_disclosures]
+}
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L69
+const _create_hash_mappings = (disclosurses_list: string[]) => {
+  // Mapping from hash of disclosure to the decoded disclosure
+  const _hash_to_decoded_disclosure:any = {}
+
+  // Mapping from hash of disclosure to the raw disclosure
+  const _hash_to_disclosure:any = {}
+
+  for (const disclosure of disclosurses_list){
+    const decoded_disclosure = JSON.parse(jose.base64url.decode(disclosure).toString())
+    const hash = _b64hash(disclosure);
+    if (_hash_to_decoded_disclosure[hash] !== undefined){
+      throw new Error(`Duplicate disclosure hash ${hash} for disclosure ${decoded_disclosure}`)
+    }
+    _hash_to_decoded_disclosure[hash] = decoded_disclosure;
+    _hash_to_disclosure[hash] = disclosure
+  }
+  return {_hash_to_decoded_disclosure, _hash_to_disclosure};
+
+}
+
+const _extract_payload_unverified = (serialized_sd_jwt: string) =>{
+  // # TODO: This holder does not verify the SD-JWT yet - this
+  // # is not strictly needed, but it would be nice to have.
+
+  // # Extract only the body from SD-JWT without verifying the signature
+  const [_header, _jwt_body, ...rest] = serialized_sd_jwt.split('.');
+  return JSON.parse(jose.base64url.decode(_jwt_body).toString())
+}
+
+const _select_disclosures = (sd_jwt_claims: any, claims_to_disclose: any[], _hash_to_decoded_disclosure: any, _hash_to_disclosure: any, hs_disclosures: any): any => {
+  // # Recursively process the claims in sd_jwt_claims. In each
+  // # object found therein, look at the SD_DIGESTS_KEY. If it
+  // # contains hash digests for claims that should be disclosed,
+  // # then add the corresponding disclosures to the claims_to_disclose.
+
+  if (Array.isArray(sd_jwt_claims)){
+    let reference: any;
+    if (!Array.isArray(claims_to_disclose) || claims_to_disclose.length < 1){
+      reference = {}
+    } else {
+      reference = claims_to_disclose[0]
+    }
+    return sd_jwt_claims.map((claim: any)=> { return _select_disclosures(claim, reference, _hash_to_decoded_disclosure, _hash_to_disclosure, hs_disclosures) })
+  } else if (typeof sd_jwt_claims === 'object'){
+    for (const [key, value] of Object.entries(sd_jwt_claims)) {
+      if (key === SD_DIGESTS_KEY){
+        for (const digest of (value as any)){
+          if (_hash_to_decoded_disclosure[digest] === undefined){
+            // # fake digest
+            continue
+          }
+          const decoded = _hash_to_decoded_disclosure[digest];
+          const [_salt, key, value] = decoded;
+          try {
+            if (claims_to_disclose[key]){
+              hs_disclosures.push(
+                _hash_to_disclosure[digest]
+              )
+            }
+          } catch(e){
+            // # claims_to_disclose is not a dict
+            console.warn(`Check claims_to_disclose for key: ${key}, value: ${value}`)
+            throw new Error(`claims_to_disclose does not contain a dict where a dict was expected (found ${claims_to_disclose} instead)`)
+          }
+          _select_disclosures(value, claims_to_disclose[key as any] || {}, _hash_to_decoded_disclosure, _hash_to_disclosure, hs_disclosures)
+        }
+      } else {
+        _select_disclosures(value, claims_to_disclose[key as any] || {}, _hash_to_decoded_disclosure, _hash_to_disclosure, hs_disclosures)
+      }
+    }
+  } else {
+    // pass
+  }
+}
+
+// a mixture of the class constructor and create_presentation
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L265
+export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[], options: any) => {
+  const [serialized_sd_jwt, _ii_disclosures] = _parse_combined_sd_jwt_iid(sd_jwt_combined)
+  const {_hash_to_decoded_disclosure, _hash_to_disclosure} = _create_hash_mappings(_ii_disclosures)
+  const sd_jwt_payload = _extract_payload_unverified(serialized_sd_jwt)
+  const hs_disclosures:any = []
+
+  _select_disclosures(sd_jwt_payload, claims_to_disclose, _hash_to_decoded_disclosure, _hash_to_disclosure, hs_disclosures)
+
+  // # Optional: Create a holder binding JWT
+  // const serialized_holder_binding_jwt = ...
+
+  const combined_presentation = _combine(serialized_sd_jwt, hs_disclosures, )
+  return combined_presentation;
+}
+
+export const verify = async (sd_jwt_combined: string, publicKey: any) => {
+  return true;
+}

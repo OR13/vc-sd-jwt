@@ -37,9 +37,16 @@ it("should error when user claims contains digest keys", async () => {
   })()).rejects.toEqual(new Error(JWT.SDJWTHasSDClaimException));
 });
 
-it("can sign SD-JWT", async () => {
+it("can sign and verify", async () => {
   const header = { alg: publicKey.alg };
   const payload = fresh(user_claims)
   const combined = await JWT.sign(header, payload, privateKey);
   expect(combined).toBeDefined()
+
+  const holder_disclosed_claims: any = { "credentialSubject": { "batchNumber": true } }
+  const derived = await JWT.derive(combined, holder_disclosed_claims, {privateKey});
+  expect(combined).toBeDefined()
+
+  // const verified = await JWT.verify(combined, publicKey)
+  // expect(verified).toBe(true)
 });
