@@ -45,8 +45,8 @@ it("can sign and verify", async () => {
 
   const holder_disclosed_claims: any = { "credentialSubject": { "batchNumber": true } }
   const derived = await JWT.derive(combined, holder_disclosed_claims, {privateKey});
-  expect(combined).toBeDefined()
+  expect(derived).toBeDefined()
 
-  // const verified = await JWT.verify(combined, publicKey)
-  // expect(verified).toBe(true)
+  const verified = await JWT.verify(derived, publicKey)
+  expect(verified).toBe(true)
 });
