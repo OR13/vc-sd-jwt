@@ -6,7 +6,9 @@
   "typings": "dist/index.d.ts",
   "files": [
     "src",
-    "dist"
+    "dist",
+    "badges",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
@@ -17,7 +19,7 @@
     "build": "tsc -b",
     "test": "NODE_NO_WARNINGS=1 NODE_OPTIONS=--experimental-vm-modules jest ",
     "coverage": "NODE_NO_WARNINGS=1 NODE_OPTIONS=--experimental-vm-modules jest --ci --coverage",
-    "lint": "eslint ./src ./test --fix",
+    "lint": "eslint --fix",
     "shove": "git add -A; git commit -m ':rocket:'; git push origin main"
   },
   "repository": {
