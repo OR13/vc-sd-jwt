@@ -143,7 +143,16 @@ const _create_hash_mappings = (disclosurses_list: string[]) => {
   const _hash_to_disclosure:any = {}
 
   for (const disclosure of disclosurses_list){
-    const decoded_disclosure = JSON.parse(jose.base64url.decode(disclosure).toString())
+    let decoded_disclosure;
+    try{
+      const decoded = jose.base64url.decode(disclosure).toString()
+      // console.log(decoded)
+      decoded_disclosure = JSON.parse(decoded)
+    } catch(e){
+      throw e;
+    }
+    
+    
     const hash = _b64hash(disclosure);
     if (_hash_to_decoded_disclosure[hash] !== undefined){
       throw new Error(`Duplicate disclosure hash ${hash} for disclosure ${decoded_disclosure}`)
@@ -223,10 +232,98 @@ export const derive = async (sd_jwt_combined: string, claims_to_disclose: any[],
   // # Optional: Create a holder binding JWT
   // const serialized_holder_binding_jwt = ...
 
-  const combined_presentation = _combine(serialized_sd_jwt, hs_disclosures, )
+  const combined_presentation = _combine(serialized_sd_jwt, ...hs_disclosures )
   return combined_presentation;
 }
 
-export const verify = async (sd_jwt_combined: string, publicKey: any) => {
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L401
+const _verify_sd_jwt = async (serialized_sd_jwt: string, cb_get_issuer_key: any)=>{
+  const publicKey =  cb_get_issuer_key();
+  const { payload, protectedHeader } = await jose.compactVerify(serialized_sd_jwt, await jose.importJWK(publicKey))
+  return { payload: JSON.parse(new TextDecoder().decode(payload).toString()), protectedHeader }
+}
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L389
+const _parse_combined_presentation = (combined: string) => {
+  // TODO: holder binding.
+  const [_unverified_input_sd_jwt, ..._hs_disclosures] = _split(combined)
+  let _unverified_input_holder_binding_jwt = undefined
+  if (_hs_disclosures[_hs_disclosures.length-1].includes('.')){
+    // its a JWT
+    _unverified_input_holder_binding_jwt = _hs_disclosures.pop()
+  }
+
+  return {_unverified_input_sd_jwt, _hs_disclosures, _unverified_input_holder_binding_jwt}
+}
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L417
+const _verify_holder_binding_jwt = (jwt: string, expected_aud: any, expected_nonce: any) => {
   return true;
+}
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L460
+const _unpack_disclosed_claims = (sd_jwt_claims: any, _duplicate_hash_check: any[], _hash_to_decoded_disclosure: any): any => {
+  if (Array.isArray(sd_jwt_claims)){
+    return sd_jwt_claims.map((c: any)=>{ return _unpack_disclosed_claims(c, _duplicate_hash_check, _hash_to_decoded_disclosure) })
+  } else if (typeof sd_jwt_claims === 'object'){
+    // # First, try to figure out if there are any claims to be
+    // # disclosed in this dict. If so, replace them by their
+    // # disclosed values.
+    // const pre_output = {
+    //     k: self._unpack_disclosed_claims(v)
+    //     for k, v in sd_jwt_claims.items()
+    //     if k != SD_DIGESTS_KEY
+    // }
+    const pre_output:any = {}
+    for (const [key, value] of Object.entries(sd_jwt_claims)) {
+      if (key !== SD_DIGESTS_KEY){
+        pre_output[key] = _unpack_disclosed_claims(value, _duplicate_hash_check, _hash_to_decoded_disclosure)
+      }
+    }
+    for ( const digest of sd_jwt_claims[SD_DIGESTS_KEY] || []){
+      if (_duplicate_hash_check.includes(digest)){
+        throw new Error(`Duplicate hash found in SD-JWT: ${digest}`)
+      }
+      _duplicate_hash_check.push(digest);
+      if (_hash_to_decoded_disclosure[digest]){
+        const [_salt, key, value] = _hash_to_decoded_disclosure[digest];
+        if (pre_output[key]){
+          throw new Error(`Duplicate key found when unpacking disclosed claim: '${key}' in ${pre_output}. This is not allowed.`)
+        }
+        const unpacked_value = _unpack_disclosed_claims(value, _duplicate_hash_check, _hash_to_decoded_disclosure)
+        pre_output[key] = unpacked_value
+      }
+    }
+    return pre_output
+  } else {
+    return sd_jwt_claims
+  }
+}
+
+// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L451
+const _extract_sd_claims = (_sd_jwt_payload: any, _hash_to_decoded_disclosure: any) =>{
+  if (_sd_jwt_payload[DIGEST_ALG_KEY] !== 'sha-256'){
+    throw new Error('Invalid hash algorithm')
+  }
+  const _duplicate_hash_check:any = []
+  return _unpack_disclosed_claims(_sd_jwt_payload, _duplicate_hash_check, _hash_to_decoded_disclosure)
+}
+
+export const verify = async (sd_jwt_combined: string, options: any) => {
+  const {_unverified_input_sd_jwt, _hs_disclosures, _unverified_input_holder_binding_jwt} = _parse_combined_presentation(sd_jwt_combined)
+  const {_hash_to_decoded_disclosure, _hash_to_disclosure} = _create_hash_mappings(_hs_disclosures)
+  const {protectedHeader, payload} = await  _verify_sd_jwt(_unverified_input_sd_jwt, () => {
+    return options.publicKey
+  })
+
+  if (_unverified_input_holder_binding_jwt){
+    if (options.expected_aud || options.expected_nonce){
+      if (! (options.expected_aud && options.expected_nonce)){
+        throw new Error('Either both expected_aud and expected_nonce must be set or both must be undefined')
+      }
+      _verify_holder_binding_jwt(_unverified_input_holder_binding_jwt, options.expected_aud, options.expected_nonce )
+    }
+  }
+  const presentationOutput = _extract_sd_claims(payload, _hash_to_decoded_disclosure)
+  return {protectedHeader, payload: presentationOutput}
 }

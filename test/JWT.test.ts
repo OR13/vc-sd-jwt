@@ -38,15 +38,14 @@ it("should error when user claims contains digest keys", async () => {
 });
 
 it("can sign and verify", async () => {
-  const header = { alg: publicKey.alg };
-  const payload = fresh(user_claims)
-  const combined = await JWT.sign(header, payload, privateKey);
+  const combined = await JWT.sign({ alg: publicKey.alg }, fresh(user_claims), privateKey);
   expect(combined).toBeDefined()
 
   const holder_disclosed_claims: any = { "credentialSubject": { "batchNumber": true } }
   const derived = await JWT.derive(combined, holder_disclosed_claims, {privateKey});
   expect(derived).toBeDefined()
-
-  const verified = await JWT.verify(derived, publicKey)
-  expect(verified).toBe(true)
+  const {protectedHeader, payload} = await JWT.verify(derived, {publicKey})
+  expect(protectedHeader.alg).toBe(publicKey.alg)
+  expect(payload._sd_alg).toBe('sha-256')
+  expect(payload.credentialSubject.batchNumber).toBe('1626382736')
 });
