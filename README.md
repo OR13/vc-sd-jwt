@@ -14,6 +14,7 @@
 Based on:
 
 - https://github.com/oauth-wg/oauth-selective-disclosure-jwt
+- https://github.com/danielfett/sd-jwt
 - https://github.com/christianpaquin/sd-jwt
 - https://github.com/chike0905/sd-jwt-ts
 

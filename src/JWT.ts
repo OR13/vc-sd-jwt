@@ -58,6 +58,11 @@ const _create_sd_claims = (user_claims: any, ii_disclosures: any[], _debug_ii_di
       return _create_sd_claims(item, ii_disclosures, _debug_ii_disclosures_contents);
     });
   } else if (typeof user_claims === "object") {
+
+    if (user_claims === null){
+      return user_claims
+    }
+   
     const sd_claims: any = { [SD_DIGESTS_KEY]: [] };
     for (const [key, value] of Object.entries(user_claims)) {
       const subtree_from_here = _create_sd_claims(value, ii_disclosures, _debug_ii_disclosures_contents);
@@ -191,6 +196,9 @@ const _select_disclosures = (sd_jwt_claims: any, claims_to_disclose: any[], _has
     }
     return sd_jwt_claims.map((claim: any)=> { return _select_disclosures(claim, reference, _hash_to_decoded_disclosure, _hash_to_disclosure, hs_disclosures) })
   } else if (typeof sd_jwt_claims === 'object'){
+    if (sd_jwt_claims === null){
+      return
+    }
     for (const [key, value] of Object.entries(sd_jwt_claims)) {
       if (key === SD_DIGESTS_KEY){
         for (const digest of (value as any)){
@@ -293,6 +301,9 @@ const _unpack_disclosed_claims = (sd_jwt_claims: any, _duplicate_hash_check: any
   if (Array.isArray(sd_jwt_claims)){
     return sd_jwt_claims.map((c: any)=>{ return _unpack_disclosed_claims(c, _duplicate_hash_check, _hash_to_decoded_disclosure) })
   } else if (typeof sd_jwt_claims === 'object'){
+    if (sd_jwt_claims === null){
+      return sd_jwt_claims
+    }
     // # First, try to figure out if there are any claims to be
     // # disclosed in this dict. If so, replace them by their
     // # disclosed values.
