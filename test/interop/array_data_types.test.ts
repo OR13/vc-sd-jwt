@@ -14,13 +14,21 @@ const issuerPublicKey = {...issuerPrivateKey};
 delete issuerPublicKey.d;
 
 it("array_data_types", async () => {
-  const combined = await JWT.sign(user_claims, { issuerPrivateKey });
+  const combined = await JWT.sign(user_claims, {
+    algorithm: issuerPrivateKey.alg,
+    issuer:  settings.identifiers.issuer,
+    validFrom: settings.iat,
+    validUntil: settings.exp,
+    issuerPrivateKey 
+  });
+
+  console.log({combined})
   const derived = await JWT.derive(combined, {
     disclose: spec.holder_disclosed_claims,
   });
   const {protectedHeader, payload} = await JWT.verify(derived, { issuerPublicKey })
   expect(protectedHeader.alg).toBe(issuerPrivateKey.alg);
-  expect(protectedHeader.typ).toBe('sd+jwt');
+  expect(protectedHeader.typ).toBe(undefined);
   expect(payload._sd_alg).toBe('sha-256');
   console.log(JSON.stringify(payload.data_types, null, 2))
   expect(payload.data_types).toEqual(user_claims.data_types)

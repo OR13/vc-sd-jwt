@@ -6,6 +6,7 @@ const DEFAULT_SIGNING_ALG = "ES256";
 const SD_DIGESTS_KEY = "_sd";
 const DIGEST_ALG_KEY = "_sd_alg";
 const COMBINED_FORMAT_SEPARATOR = "~"
+const SD_LIST_PREFIX = "..."
 
 export const SDJWTHasSDClaimException =
   "Exception raised when input data contains the special _sd claim reserved for SD-JWT internal data.";
@@ -51,36 +52,66 @@ const _create_sd_claim_entry = (key: string, value: any, ii_disclosures: any[], 
   return hash;
 };
 
-// https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L167
+// https://github.com/danielfett/sd-jwt/blob/19f683cab97bced2ec0050f7cd1d1265c1470bb1/src/sd_jwt/issuer.py#L95
+const _create_sd_claims_list = (user_claims: Array<any>, ii_disclosures: any[], _debug_ii_disclosures_contents:any) => {
+
+  //   # Walk through all elements in the list.
+  //   # If an element is marked as SD, then create a proper disclosure for it.
+  //   # Otherwise, just return the element.
+  const output_user_claims = [] as any[]
+
+//   for claim in user_claims:
+//       if isinstance(claim, SDObj):
+//           subtree_from_here = self._create_sd_claims(claim.value)
+//           # Create a new disclosure
+//           disclosure = SDJWTDisclosure(
+//               self,
+//               key=None,
+//               value=subtree_from_here,
+//           )
+
+//           # Add to ii_disclosures
+//           self.ii_disclosures.append(disclosure)
+
+//           # Assemble all hash digests in the disclosures list.
+//           output_user_claims.append({SD_LIST_PREFIX: disclosure.hash})
+//       else:
+//           subtree_from_here = self._create_sd_claims(claim)
+//           output_user_claims.append(subtree_from_here)
+
+  return output_user_claims
+}
+
+const _create_sd_claims_object = (user_claims: any, ii_disclosures: any[], _debug_ii_disclosures_contents:any): any => {
+  if (user_claims === null){
+    return user_claims
+  }
+  const sd_claims: any = { [SD_DIGESTS_KEY]: [] };
+  for (const [key, value] of Object.entries(user_claims)) {
+    const subtree_from_here = _create_sd_claims(value, ii_disclosures, _debug_ii_disclosures_contents);
+    if (typeof key === "string") {
+      sd_claims[SD_DIGESTS_KEY].push(
+        _create_sd_claim_entry(key, subtree_from_here, ii_disclosures, _debug_ii_disclosures_contents)
+      );
+    } else {
+      sd_claims[key] = subtree_from_here;
+    }
+  }
+  // TODO: add decoys..
+  if (sd_claims[SD_DIGESTS_KEY].length === 0) {
+    delete sd_claims[SD_DIGESTS_KEY];
+  } else {
+    sd_claims[SD_DIGESTS_KEY].sort();
+  }
+  return sd_claims;
+}
+
+// https://github.com/danielfett/sd-jwt/blob/19f683cab97bced2ec0050f7cd1d1265c1470bb1/src/sd_jwt/issuer.py#L74
 const _create_sd_claims = (user_claims: any, ii_disclosures: any[], _debug_ii_disclosures_contents:any): any => {
   if (Array.isArray(user_claims)) {
-    return user_claims.map((item: any) => {
-      return _create_sd_claims(item, ii_disclosures, _debug_ii_disclosures_contents);
-    });
+    return _create_sd_claims_list(user_claims, ii_disclosures, _debug_ii_disclosures_contents);
   } else if (typeof user_claims === "object") {
-
-    if (user_claims === null){
-      return user_claims
-    }
-   
-    const sd_claims: any = { [SD_DIGESTS_KEY]: [] };
-    for (const [key, value] of Object.entries(user_claims)) {
-      const subtree_from_here = _create_sd_claims(value, ii_disclosures, _debug_ii_disclosures_contents);
-      if (typeof key === "string") {
-        sd_claims[SD_DIGESTS_KEY].push(
-          _create_sd_claim_entry(key, subtree_from_here, ii_disclosures, _debug_ii_disclosures_contents)
-        );
-      } else {
-        sd_claims[key] = subtree_from_here;
-      }
-    }
-    // TODO: add decoys..
-    if (sd_claims[SD_DIGESTS_KEY].length === 0) {
-      delete sd_claims[SD_DIGESTS_KEY];
-    } else {
-      sd_claims[SD_DIGESTS_KEY].sort();
-    }
-    return sd_claims;
+    return _create_sd_claims_object(user_claims, ii_disclosures, _debug_ii_disclosures_contents)
   } else {
     return user_claims;
   }
@@ -99,7 +130,7 @@ const _assemble_sd_jwt_payload = (user_claims: any, ii_disclosures: any[], _debu
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L215
 const _create_signed_jwt = async (header: any, sd_jwt_payload: any, privateKey: any )=>{
   const _headers = { ...header, alg: privateKey.alg };
-  _headers.typ = 'sd+jwt';
+  // _headers.typ = 'sd+jwt';
   const jws = await new jose.CompactSign(
     new TextEncoder().encode(JSON.stringify(sd_jwt_payload)),
   )
@@ -119,14 +150,13 @@ const _create_combined = (serialized_sd_jwt: string, ii_disclosures: any[]) => {
 }
 
 // https://github.com/oauth-wg/oauth-selective-disclosure-jwt/blob/7aa6f926bfc684eae530ebf1210d74b636ae0a06/sd_jwt/operations.py#L105
-export const sign = async (user_claims: any, { issuerPrivateKey, holderPublicKey }: any) => {
+export const sign = async (user_claims: any, { algorithm, issuer, validFrom, validUntil, issuerPrivateKey, holderPublicKey }: any) => {
   _check_for_sd_claim(user_claims);
-
   const ii_disclosures:any[] = [];
   const _debug_ii_disclosures_contents:any[] = [];
-  
-  const sd_jwt_payload = _assemble_sd_jwt_payload(user_claims, ii_disclosures, _debug_ii_disclosures_contents, holderPublicKey);
-  const serialized_sd_jwt = await _create_signed_jwt({ alg: issuerPrivateKey.alg }, sd_jwt_payload, issuerPrivateKey);
+  let sd_jwt_payload = _assemble_sd_jwt_payload(user_claims, ii_disclosures, _debug_ii_disclosures_contents, holderPublicKey);
+  sd_jwt_payload = {iss: issuer, iat: validFrom, exp: validUntil, ...sd_jwt_payload }
+  const serialized_sd_jwt = await _create_signed_jwt({alg: algorithm}, sd_jwt_payload, issuerPrivateKey);
   const combined = _create_combined(serialized_sd_jwt, ii_disclosures)
   return combined;
 };
