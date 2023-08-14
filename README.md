@@ -1,5 +1,7 @@
 # @or13/vc-sd-jwt
 
+This repo has moved to https://github.com/transmute-industries/vc-jwt-sd
+
 [![CI](https://github.com/or13/vc-sd-jwt/actions/workflows/ci.yml/badge.svg)](https://github.com/or13/vc-sd-jwt/actions/workflows/ci.yml)
 ![Branches](./badges/coverage-branches.svg)
 ![Functions](./badges/coverage-functions.svg)
